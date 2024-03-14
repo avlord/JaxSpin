@@ -57,6 +57,10 @@ class MLPCategoricalActor(Actor):
                                        key=jax.random.PRNGKey(1)), 
                                        activation_fun,
                         eqx.nn.Linear(in_features=64,
+                                       out_features=64,
+                                       key=jax.random.PRNGKey(2)), 
+                                        activation_fun,
+                        eqx.nn.Linear(in_features=64,
                                        out_features=sizes[-1],
                                        key=jax.random.PRNGKey(2)), 
                                        ]
@@ -68,6 +72,49 @@ class MLPCategoricalActor(Actor):
         for layer in self.layers:
             obs = layer(obs)
         dist = distrax.Categorical(logits=obs)
+        return dist
+    
+    def _log_prob_from_distribution(self,pi,act):
+        return pi.log_prob(act) 
+    
+    def __call__(self,obs,act=None):
+        return self.forward(obs,act)
+    
+class MLPGaussianActor(Actor):
+    layers: list
+
+    def __init__(self,sizes:tuple,activation_fun:callable,seed:int) -> None:
+        super().__init__()
+        if type(seed) != int:
+            raise "seed should be int"
+        self.layers = []
+        # self.layers += [(eqx.nn.Linear(in_features=sizes[i],
+        #                                out_features=sizes[i+1],
+        #                                key=jax.random.PRNGKey(i+seed)), 
+        #                                activation_fun) for i in range(len(sizes)-1)]
+        
+        self.layers += [eqx.nn.Linear(in_features=sizes[0],
+                                       out_features=64,
+                                       key=jax.random.PRNGKey(1)), 
+                                       activation_fun,
+                        eqx.nn.Linear(in_features=64,
+                                       out_features=64,
+                                       key=jax.random.PRNGKey(2)), 
+                                        activation_fun,
+                        eqx.nn.Linear(in_features=64,
+                                       out_features=2,
+                                       key=jax.random.PRNGKey(2)), 
+                                       ]
+ 
+        
+        # self.layers = list(chain.from_iterable(self.layers))
+    
+    def _distribution(self,obs:jnp.array):
+        for layer in self.layers:
+            # print(obs.shape)
+            obs = layer(obs)
+
+        dist = distrax.Normal(loc=obs[0],scale=obs[1])
         return dist
     
     def _log_prob_from_distribution(self,pi,act):
@@ -92,6 +139,10 @@ class MLPCritic(eqx.Module):
                                        key=jax.random.PRNGKey(1)), 
                                        activation_fun,
                         eqx.nn.Linear(in_features=64,
+                                       out_features=64,
+                                       key=jax.random.PRNGKey(2)), 
+                                        activation_fun,
+                        eqx.nn.Linear(in_features=64,
                                        out_features=sizes[-1],
                                        key=jax.random.PRNGKey(2)), 
                                        ]
@@ -104,7 +155,7 @@ class MLPCritic(eqx.Module):
         return obs
 
 class MlpActorCritic(eqx.Module):
-    pi: MLPCategoricalActor
+    pi: MLPGaussianActor
     v: MLPCritic
     pi_shape: list
     v_shape: list
@@ -115,20 +166,26 @@ class MlpActorCritic(eqx.Module):
         self.pi_shape = [observation_space,] + list(hidden_sizes) + [action_space,]
         self.v_shape = [observation_space,] + list(hidden_sizes) + [1,]
         
-        self.pi = MLPCategoricalActor(sizes=self.pi_shape,activation_fun=activation_fun,seed=seed)
+        self.pi = MLPGaussianActor(sizes=self.pi_shape,activation_fun=activation_fun,seed=seed)
         self.v = MLPCritic(sizes=self.v_shape,activation_fun=activation_fun,seed=seed)
     
-    
+    # @eqx.filter_jit
     def __call__(self,obs,key):
+        
         dist = self.pi._distribution(obs)
         act = dist.sample(seed=key)
         log_p = dist.log_prob(act)
         v = self.v(obs)
-      
+       
         return act, log_p, v
     
    
-    def act(self,obs,):
-        for layer in self.pi.layers:
-            obs = layer(obs)
-        return int(jnp.argmax(obs))
+    def act(self,obs,key=42):
+        # raise NotImplemented
+
+        dist = self.pi._distribution(obs)
+        act = dist.sample(seed=key)
+        # for layer in self.pi.layers:
+            # obs = layer(obs)
+        return act
+
